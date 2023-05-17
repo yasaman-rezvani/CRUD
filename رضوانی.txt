@@ -1,0 +1,219 @@
+برای پیاده سازی یک برنامه CRUD بر اساس Spring Boot  و Maven که از تمامی شرایط فوق پشتیبانی می‌کند، می‌توانید مراحل زیر را دنبال کنید:
+
+نصب JDK نسخه 17، Maven و Docker روی سیستم
+
+C) قالب پروژه‌ی Spring Boot را ایجاد کنید.
+
+با استفاده از Spring Initializr یا ابزار IDE خود قالب پروژه‌ی Spring Boot را ایجاد کنید.
+Software Architecture
+ایجاد بستر برنامه در پوشه پروژه به نام "com.yourname.app"
+ایجاد پکیج هایی برای مقداردهی وب و برنامه های بانک
+پکیج 'config': تنظیمات Spring
+پکیج 'controller': پیاده سازی عملیات CRUD
+پکیج 'dto': برای تعریف داده‌های انتقال داده بین کنترل کننده ها و سرویس ها
+پکیج 'entity': نگهداری کلاس های Entity جهت ارتباط با دیتابیس
+پکیج 'repository': نگهداری کلاس های Repository جهت دسترسی به دیتابیس
+پکیج 'service': برای نگهداری لجستیک تجاری و ویژگی های پردازشی
+پکیج 'util': برای قرار دادن کلاس های کمکی نظیر صحت سنجی داده
+اتصال به دیتابیس
+سرویس Spring با دس کوءری زیر به پایگاه داده های in-memory H2 وصل می شود.
+java
+
+@Configuration
+@EnableJpaRepositories(basePackages = "com.yourname.app.repository")
+@EntityScan(basePackages = "com.yourname.app.entity")
+@EnableTransactionManagement
+public class JPAConfig {
+
+    @Autowired
+    private Environment env;
+
+    @Bean
+    public DataSource dataSource() {
+        final DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName(Objects.requireNonNull(env.getProperty("spring.datasource.driver-class-name")));
+        dataSource.setUrl(env.getProperty("spring.datasource.url"));
+        dataSource.setUsername(env.getProperty("spring.datasource.username"));
+        dataSource.setPassword(env.getProperty("spring.datasource.password"));
+        return dataSource;
+    }
+
+    @Bean
+    public LocalContainerEntityManagerFactoryBean entityManagerFactory() {
+
+        final HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
+        vendorAdapter.setGenerateDdl(true);
+
+        final LocalContainerEntityManagerFactoryBean entityManager = new LocalContainerEntityManagerFactoryBean();
+        entityManager.setJpaVendorAdapter(vendorAdapter);
+        entityManager.setPackagesToScan("com.yourname.app.entity");
+        entityManager.setDataSource(dataSource());
+        entityManager.setJpaProperties(hibernateProperties());
+        return entityManager;
+    }
+
+    private Properties hibernateProperties() {
+        final Properties ret = new Properties();
+        ret.put("hibernate.dialect", env.getProperty("spring.jpa.properties.hibernate.dialect"));
+        ret.put("hibernate.show_sql", env.getProperty("spring.jpa.show-sql"));
+        ret.put("hibernate.format_sql", env.getProperty("spring.jpa.hibernate.format_sql"));
+        return ret;
+    }
+
+    @Bean
+    public PlatformTransactionManager transactionManager() {
+
+        final JpaTransactionManager transactionManager = new JpaTransactionManager();
+        transactionManager.setEntityManagerFactory(entityManagerFactory().getObject());
+        return transactionManager;
+    }
+}
+مدل سازی Entit
+یک مدل برای ذخیره کاربران با استفاده از Hibernate می توان به صورت زیر تعریف شما:
+java
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "email", nullable = false, unique = true)
+    private String email;
+
+    @Column(name = "password", nullable = false)
+    private String password;
+
+    @Column(name = "role", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private UserRole role;
+    
+    // -------------------
+
+    // Getter and Setter methods
+
+    // -------------------
+
+    // To String
+
+    // -------------------
+}
+نمایش داده‌های خروجی از طریق کنترلر
+java
+
+@RestController
+@RequestMapping("/api/users")
+@CrossOrigin(origins = "*", maxAge = 3600)
+public class UserController {
+
+    private final UserService userService;
+
+    @Autowired
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @GetMapping("")
+    public ResponseEntity<List<User>> findAll() {
+        List<User> users = userService.findAll();
+        if (users.isEmpty()) {
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        }
+        return new ResponseEntity<>(users, HttpStatus.OK);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Resource<User>> findById(@PathVariable Long id) {
+        return userService.findById(id).map(user -> new Resource<>(user)).map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<User> create(@RequestBody UserDto userDto) {
+        User createdUser = userService.create(userDto.convertToEntity());
+        return new ResponseEntity<>(createdUser, HttpStatus.CREATED);
+    }
+
+    @PutMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<User> update(@PathVariable Long id, @RequestBody UserDto userDto) throws BadRequestException {
+        User user = userService.findById(id).orElseThrow(() -> new BadRequestException("User not found"));
+        User updatedUser = userService.update(user, userDto);
+        return new ResponseEntity<>(updatedUser, HttpStatus.OK);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<HttpStatus> delete(@PathVariable Long id) {
+        userService.deleteById(id);
+        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+    }
+}
+یک سرویس برای انجام عملیات CRUD بر روی مدل
+با استفاده Repository Spring ، می توان به ساده ترین شکل یک سرویس Spring CRUD را پیاده سازی کرد. برای مثال:
+java
+
+@Service
+public class UserService {
+
+    private final UserRepository userRepository;
+
+    @Autowired
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public List<User> findAll() {
+        return StreamSupport.stream(userRepository.findAll().spliterator(), false)
+                .collect(Collectors.toList());
+    }
+
+    public Optional<User> findById(Long id) {
+        return userRepository.findById(id);
+    }
+
+    public User create(User user) {
+        return userRepository.save(user);
+    }
+
+    public User update(User user, UserDto userDto) {
+        user.setName(userDto.getName());
+        user.setEmail(userDto.getEmail());
+        user.setPassword(userDto.getPassword());
+        user.setRole(userDto.getRole());
+        return userRepository.save(user);
+    }
+
+    public void deleteById(Long id) {
+        userRepository.deleteById(id);
+    }
+}
+قسمت Unit Test
+برای تست Spring Boot می‌توان از JUnit و Mockito یا هر Framework دیگری که برای Test در جاوا موجود است در این پروژه استفاده کنید:
+java
+
+@SpringBootTest
+@ActiveProfiles("test")
+public class UserServiceTest {
+
+    @Autowired
+    private UserService userService;
+
+    @MockBean
+    private UserRepository userRepository;
+
+    @Test
+    public void shouldFindAllUsers() {
+        List<User> expectedUsers = Arrays.asList(new User(), new User());
+        Mockito.when(userRepository.findAll()).thenReturn(expectedUsers);
+        List<User> actualUsers = userService.findAll();
+        Assertions.assertEquals(expectedUsers, actualUsers);
+    }
+
+    // -----------------------
+
+}
+Logging
+برای لاگ گرفتن در پروژه می‌توان از logging framework های پرطرفدار در جاوا مانند Logback، Log
