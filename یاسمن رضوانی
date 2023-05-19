@@ -1,0 +1,55 @@
+@Entity
+@Table(name = "t_students")
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name")
+    private String name;
+    
+    @Column(name = "email")
+    private String email;
+    
+    // setters and getters
+}
+
+
+
+@Repository
+public interface StudentRepository extends JpaRepository<Student, Long> {
+}
+
+
+@RestController
+@RequestMapping("/students")
+public class StudentController {
+    @Autowired
+    private StudentRepository studentRepository;
+
+    @GetMapping("/")
+    public List<Student> getAllStudents() {
+        return studentRepository.findAll();
+    }
+    
+    @GetMapping("/{id}")
+    public Student getStudentById(@PathVariable("id") Long id) {
+        return studentRepository.findById(id).orElse(null);
+    }
+    
+    @PostMapping("/")
+    public Student createStudent(@RequestBody Student student) {
+        return studentRepository.save(student);
+    }
+    
+    @PutMapping("/{id}")
+    public Student updateStudent(@PathVariable("id") Long id, @RequestBody Student student) {
+        student.setId(id);
+        return studentRepository.save(student);
+    }
+    
+    @DeleteMapping("/{id}")
+    public void deleteStudent(@PathVariable("id") Long id) {
+       studentRepository.deleteById(id);
+    }
+}
